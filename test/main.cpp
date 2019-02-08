@@ -1,23 +1,20 @@
 #include <iostream>
-#include <iarchiver.h>
-#include <iautoeconomy.h>
-#include <ievidencewrapper.h>
-#include <fstools.h>
-
-#include <evidence.h>
+#include <../include/archiver.h>
 
 #include <time.h>
 
-void testMode(IArchiverFile::Mode mode, std::string path) {
+
+
+void testMode(int mode, std::string path) {
         std::string archiveName = "archive.arc";
         std::string archivePath = path;
 
-        time_t start = time(NULL);
-        IArchiver* archiver = GetArchiver(archiveName);
-        archiver->addPath(archivePath, mode);
+        time_t start = time(nullptr);
+        Archiver* archiver = new Archiver(archiveName);
+        archiver->addFile("archiver.o", mode);
         delete archiver;
         archiver = NULL;
-        time_t stop = time(NULL);
+        time_t stop = time(nullptr);
         std::cout << mode << " mode time: " << (stop - start) << std::endl;
 
         std::list<IArchiverFile*> fileList;

@@ -1,10 +1,9 @@
-#include "archiverutils.h"
+#include "../include/archiverutils.h"
+#include <openssl/aes.h>
 
 #include <string.h>
 #include <boost/uuid/sha1.hpp>
-#include <boost/filesystem.hpp>
-#include <boost/filesystem/path.hpp>
-#include "lz4.h"
+#include "../include/lz4.h"
 
 void ArchiverUtils::generateKey(unsigned char key[16], std::string fileName) {
     unsigned char hash[20];
@@ -30,7 +29,7 @@ void ArchiverUtils::encrypt(std::string pass, unsigned char * in, unsigned char 
     AES_set_encrypt_key(ckey, 128, &key);
 
     int num = 0;
-    AES_cfb128_encrypt(in, out, len, &key, ivec, &num, AES_ENCRYPT);
+    AES_cfb128_encrypt(in, out, static_cast<size_t>(len), &key, ivec, &num, AES_ENCRYPT);
 }
 
 void ArchiverUtils::decrypt(std::string pass, unsigned char * in, unsigned char *out, int len) {
@@ -47,7 +46,7 @@ void ArchiverUtils::decrypt(std::string pass, unsigned char * in, unsigned char 
 
     memset(out, 0, len);
 
-    AES_cfb128_encrypt(in, out, len, &key, ivec, &num, AES_DECRYPT);
+    AES_cfb128_encrypt(in, out, static_cast<size_t>(len), &key, ivec, &num, AES_DECRYPT);
 
 }
 

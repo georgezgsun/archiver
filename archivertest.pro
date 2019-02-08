@@ -1,9 +1,8 @@
-TEMPLATE = lib
+TEMPLATE = app
 CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
 PKGCONFIG += libssl
-
 
 QMAKE_CXXFLAGS += -std=c++11
 
@@ -12,7 +11,7 @@ QMAKE_CXXFLAGS += -std=c++11
 
 DEFINES += "_HAS_ITERATOR_DEBUGGING=0" ARCH_LIBRARY_EXPORT
 
-TARGET = archiver
+TARGET = test
 
 HEADERS += \
     include/lz4.h \
@@ -24,5 +23,6 @@ SOURCES += \
     src/lz4.c \
     src/archiverutils.cpp \
     src/archiver.cpp \
-    src/fileutils.cpp
+    src/fileutils.cpp \
+    src/archivertest.cpp
 

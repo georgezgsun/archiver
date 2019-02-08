@@ -2,7 +2,7 @@
 #define IARCHIVER_H
 
 #include <string>
-#include <iarchiverfile.h>
+#include "iarchiverfile.h"
 
 #include <boost/signals2/connection.hpp>
 #include <boost/signals2/signal.hpp>
@@ -24,8 +24,9 @@ public:
 
     typedef boost::signals2::signal<void(float)> ProgressSlot;
     typedef ProgressSlot::slot_type ProgressSlotType;
+    std::string archiver;
 
-    IArchiver(std::string archiveFileName) { archiveFileName = archiveFileName; }
+    IArchiver(std::string archiveFileName) { archiver = archiveFileName; }
     virtual ~IArchiver() {}
 
     virtual int addFile(std::string fileName, IArchiverFile::Mode mode = IArchiverFile::FULL) = 0;

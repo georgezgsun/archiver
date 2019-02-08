@@ -1,14 +1,16 @@
-#include "archiverfile.h"
+//#include "archiverfile.h"
+#include "archiver.h"
+#include "lz4.h"
 
 #include <boost/filesystem.hpp>
 
-#include <exceptions/exceptiontypes.h>
+//#include <exceptions/exceptiontypes.h>
 
 void ArchiverFile::parseMode() {
     unsigned char numBuffer[sizeof(uint32_t)];
 
     if (fileSizeLeft < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small");
     }
     readCount = fread(numBuffer, 1, sizeof(uint32_t), headerStart);
     fileSizeLeft -= sizeof(uint32_t);
@@ -28,7 +30,7 @@ void ArchiverFile::parseFileNameSize() {
     unsigned char numBuffer[sizeof(uint32_t)];
 
     if (fileSizeLeft < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(numBuffer, 1, sizeof(uint32_t), headerStart);
     fileSizeLeft -= sizeof(uint32_t);
@@ -45,7 +47,7 @@ void ArchiverFile::parseFileNameSize() {
 
 void ArchiverFile::parseFileName() {
     if (fileSizeLeft < fileNameSize) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
 
     char * fileNameTmp = new char[fileNameSize + 1];
@@ -75,7 +77,7 @@ void ArchiverFile::parseCompressedSize() {
     unsigned char numBuffer[sizeof(uint32_t)];
 
     if (fileSizeLeft < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(numBuffer, 1, sizeof(uint32_t), headerStart);
     fileSizeLeft -= sizeof(uint32_t);
@@ -94,7 +96,7 @@ void ArchiverFile::parseDataSize() {
     unsigned char numBuffer[sizeof(uint32_t)];
 
     if (fileSizeLeft < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(numBuffer, 1, sizeof(uint32_t), headerStart);
     fileSizeLeft -= sizeof(uint32_t);
@@ -113,7 +115,7 @@ void ArchiverFile::parseChecksum() {
     unsigned char numBuffer[20];
 
     if (fileSizeLeft < 20) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(numBuffer, 1, 20, headerStart);
     fileSizeLeft -= 20;
@@ -149,7 +151,7 @@ ArchiverFile::ArchiverFile(std::string archiveFileName, uint32_t seek) :
     if (fileSizeLeft < seek) {
         fclose(headerStart);
         delete logger;
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
 
     fseek(headerStart, seek, SEEK_SET);
@@ -175,14 +177,14 @@ ArchiverFile::ArchiverFile(std::string archiveFileName, uint32_t seek) :
     } catch (...) {
         fclose(headerStart);
         delete logger;
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
 
     fclose(headerStart);
 
     if (fileSizeLeft < (size_t) compressedSize) {
         delete logger;
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
 }
 
@@ -207,7 +209,7 @@ long ArchiverFile::readCompressedChunkSize(FILE * archive) {
     unsigned char buffer[sizeof(uint32_t)];
 
     if (fileSizeLeft2 < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(buffer, 1, sizeof(uint32_t), archive);
     fileSizeLeft2 -= sizeof(uint32_t);
@@ -227,7 +229,7 @@ long ArchiverFile::readDataChunkSize(FILE* archive) {
     unsigned char buffer[sizeof(uint32_t)];
 
     if (fileSizeLeft2 < sizeof(uint32_t)) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(buffer, 1, sizeof(uint32_t), archive);
     fileSizeLeft2 -= sizeof(uint32_t);
@@ -251,7 +253,7 @@ void ArchiverFile::readDataChunk(uint32_t size, uint32_t bytes, FILE * archive, 
     unsigned char * buffer2 = new unsigned char[size2];
 
     if (fileSizeLeft2 < size) {
-        throw ARCHIVER_FILE_CORRUPTED("File to small");
+        throw printf("File too small.");
     }
     readCount = fread(buffer, 1, size, archive);
     fileSizeLeft2 -= size;

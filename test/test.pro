@@ -3,12 +3,13 @@ CONFIG += console
 CONFIG -= app_bundle
 CONFIG -= qt
 
-include(../../unix.pri)
-include(../../ipp.pri)
-include(../../boost.pri)
+TARGET = test.out
 
-TARGET = archiver-test
+HEADERS += \
+    ../include/archiver.h \
+    ../include/fileutils.h
 
-SOURCES += main.cpp
+SOURCES += fileutilstest.cpp \
+        fileutils.cpp
 
-LIBS += -llogger -larchiver -limgtool -lcrypto
+

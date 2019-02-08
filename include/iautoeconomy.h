@@ -1,4 +1,4 @@
-#ifndef IAUTOECONOMY_H
+ifndef IAUTOECONOMY_H
 #define IAUTOECONOMY_H
 
 #include <string>

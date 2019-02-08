@@ -1,14 +1,9 @@
-#include "archiver.h"
-#include "archiverutils.h"
-
 #include <assert.h>
 
-#include <boost/filesystem.hpp>
-#include <boost/filesystem/path.hpp>
-#include <boost/uuid/sha1.hpp>
-
-#include "lz4.h"
-#include "watchdog.h"
+#include "../include/archiver.h"
+#include "../include/archiverutils.h"
+#include "../include/lz4.h"
+#include "../include/fileutils.h"
 
 #define ARCHIVER_BUFFER_SIZE (1024 * 1024 * 16)
 #define CHECKSUM_SIZE 20
@@ -19,373 +14,413 @@
  *
  */
 
-Archiver::Archiver(std::string archiveFileName):
-    IArchiver(archiveFileName),
-    archiveFileName(archiveFileName),
-    statCompressedPayload(0),
-    statPayloadSize(0),
-    statHeaderSize(0)
+Archiver::Archiver(std::string narchiveFileName)
 {
-    logger = GetLogger("Archiver");
+//    logger = GetLogger("Archiver");
 
-    logger->normal() << "Openning " << archiveFileName << " archive file";
+//    std::cout << "Openning " << archiveFileName << " archive file";
+    archiveFileName = narchiveFileName;
+    statCompressedPayload = 0;
+    statPayloadSize = 0;
+    statHeaderSize = 0;
 
     FILE* touch = fopen(archiveFileName.c_str(), "wb");
     assert(touch != NULL);
-
     fclose(touch);
 
-    bufferIn = new unsigned char [LZ4_compressBound(ARCHIVER_BUFFER_SIZE)];
-    bufferOut = new unsigned char [LZ4_compressBound(ARCHIVER_BUFFER_SIZE)];
+    int len = LZ4_compressBound(ARCHIVER_BUFFER_SIZE);
+    bufferIn = new char [len];
+    bufferOut = new char [len];
+    in = new unsigned char[len];
+    out = new unsigned char[len];
 
     progress = 0;
-
 }
 
 Archiver::~Archiver() {
     delete [] bufferIn;
     delete [] bufferOut;
-    delete logger;
+    delete [] in;
+    delete [] out;
 }
 
-int Archiver::addFile(std::string fileName, IArchiverFile::Mode mode) {
-    logger->normal() << "Adding file: " << fileName << " to archive: " << archiveFileName << " with mode " << (int) mode;
+int Archiver::addFile(std::string fileName, int mode)
+{
+    std::cout << "Adding file: " << fileName << " to archive: " << archiveFileName << " with mode " << mode;
 
-    boost::filesystem::path fileKey(fileName);
-    boost::filesystem::path archiveKey(archiveFileName);
+    std::string fileKey = fileName;
+    std::string archiveKey = archiveFileName;
 
-    if (!boost::filesystem::is_regular_file(boost::filesystem::status(fileKey)) ||
-        boost::filesystem::is_symlink(boost::filesystem::symlink_status(fileKey))) {
-        logger->error() << "Cannot add not regular file: " << fileName;
+    if (!isRegularFile(fileName))
+    {
+        std::cout << fileName << " is not a regular file." << std::endl;
         return -1;
     }
 
     FILE* archive = fopen(archiveFileName.c_str(), "rwb+");
-    if (archive == NULL) {
-        logger->error() << "Cannot open archive file: " << archiveFileName;
-        return -1;
+    if (!archive)
+    {
+        std::cout<< "Cannot open archive file: " << archiveFileName << std::endl;
+        return -2;
     }
 
     FILE* file = fopen(fileName.c_str(), "rb");
-    if (file == NULL) {
-        logger->error() << "Cannot open file to add to archive: " << fileName;
+    if (!file)
+    {
+        std::cout<< "Cannot open " << fileName << " to add to archive: " << std::endl;
         fclose(archive);
-        return -1;
+        return -3;
     }
 
     int ret = fseek(archive, 0, SEEK_END);
-    if (ret != 0) {
-        logger->error() << "Cannot go to end of file: " << fileName;
+    if (ret != 0)
+    {
+        std::cout<< "Cannot go to end of file: " << fileName << " with error code " << ret << std::endl;
+        ret=-4;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -4;
     }
 
     int64_t start = ftell(archive);
-    logger->normal() << "Adding to archive at: " << start;
-    if (start < 0) {
-        logger->error() << "Cannot get end of file position: " << fileName;
+    std::cout<< "Adding to archive at: " << start << std::endl;
+    if (start < 0)
+    {
+        std::cout<< "Cannot get end of file position: " << fileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -5;
     }
 
-    uint32_t fileNameSize = fileName.size();
-    uint32_t headerSize = sizeof(IArchiverFile::Mode) + sizeof(fileNameSize) + fileNameSize + sizeof(uint32_t) + sizeof(uint32_t) + CHECKSUM_SIZE;
-    logger->normal() << "Header size " << headerSize;
+    uint32_t fileNameSize = static_cast<uint32_t>(fileName.size());
+    uint32_t headerSize = sizeof(mode) + sizeof(fileNameSize) + fileNameSize + sizeof(uint32_t) + sizeof(uint32_t) + CHECKSUM_SIZE;
+    std::cout << "Header size " << headerSize << std::endl;
 
+    // Jump to payload section
     ret = fseek(archive, headerSize, SEEK_CUR);
-    if (ret != 0) {
-        logger->error() << "Cannot go to payload position: " << fileName;
+    if (ret != 0)
+    {
+        std::cout<< "Cannot go to payload position: " << fileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -6;
     }
 
-    uint32_t dataSize = 0;
-    uint32_t compressedSize = 0;
+    bool doCompression = (mode & 1) == 0;
+    bool doEncryption = (mode & 2) == 0;
+    if (!doCompression && !doEncryption)
+    {
+        std::cout<< "Mode specification " << mode << " is incorrect. It can only be 0(Compression and Encryption), 1(Comprission only), or 2(Encryption only)." << std::endl;
+        fclose(archive);
+        fclose(file);
+        return -7;
+    }
 
-    boost::uuids::detail::sha1 sha;
+    int dataSize = 0;
+    int compressedSize = 0;
+    size_t written;
 
-    bool doCompression = (mode == IArchiverFile::FULL || mode == IArchiverFile::COMP_ONLY);
-    bool doEncryption = (mode == IArchiverFile::FULL || mode == IArchiverFile::ENC_ONLY);
+    unsigned char in[sizeof(bufferIn)];
+    unsigned char out[sizeof(bufferOut)];
 
-    while (feof(file) == 0) {
-        uint32_t bytes = fread(bufferIn, 1, ARCHIVER_BUFFER_SIZE, file);
+    while (feof(file) == 0)
+    {
+        size_t bytes = fread(bufferIn, 1, ARCHIVER_BUFFER_SIZE, file);
         sha.process_bytes(bufferIn, bytes);
         dataSize += bytes;
         statPayloadSize += bytes;
 
-        uint32_t size;
-        uint32_t written;
+        int size;
 
-        if (doCompression) {
-            size = LZ4_compress((char*) bufferIn, (char*) bufferOut, bytes);
-        } else {
+        if (doCompression)
+        {
+            size = LZ4_compress(bufferIn, bufferOut, static_cast<int>(bytes));
+            statCompressedPayload += static_cast<uint32_t>(size);
+        }
+        else
+        {
             memcpy(bufferOut, bufferIn, bytes);
-            size = bytes;
-        }
-        statCompressedPayload += size;
+            statCompressedPayload += bytes;
+            size = static_cast<int>(bytes);
+        } 
 
-        if (doEncryption) {
-            ArchiverUtils::encrypt(fileKey.leaf().string(), (unsigned char*) &size, bufferIn, sizeof(uint32_t));
-        } else {
-            memcpy(bufferIn, (unsigned char*) &size, sizeof(uint32_t));
+        // process the payload/compressed chunk
+        if (doEncryption)
+        {
+            memcpy(in, &size, sizeof(size));
+            ArchiverUtils::encrypt(getFilename(fileName), in, out, sizeof(size));
         }
-        written = fwrite(bufferIn, 1, sizeof(uint32_t), archive);
-        if (written != sizeof(uint32_t)) {
-            logger->error() << "Cannot write to file: " << archiveFileName;
+        else
+        {
+            memcpy(out, &size, sizeof(size));
+        }
+        written = fwrite(out, 1, sizeof(size), archive);
+        if (written != sizeof(size))
+        {
+            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
             fclose(archive);
             fclose(file);
-            return -1;
+            return -8;
         }
-        compressedSize += sizeof(uint32_t);
-        statHeaderSize += sizeof(uint32_t);
+        compressedSize += sizeof(size);
+        statHeaderSize += sizeof(size);
 
-
-        if (doEncryption) {
-            ArchiverUtils::encrypt(fileKey.leaf().string(), (unsigned char*) &bytes, bufferIn, sizeof(uint32_t));
-        } else {
-            memcpy(bufferIn, (unsigned char*) &bytes, sizeof(uint32_t));
+        // process the payload/data chunk
+        if (doEncryption)
+        {
+            memcpy(in, &bytes, sizeof(bytes));
+            ArchiverUtils::encrypt(getFilename(fileName), in, out, sizeof(bytes));
+        } else
+        {
+            memcpy(out, &bytes, sizeof(bytes));
         }
-        written = fwrite(bufferIn, 1, sizeof(uint32_t), archive);
-        if (written != sizeof(uint32_t)) {
-            logger->error() << "Cannot write to file: " << archiveFileName;
+        written = fwrite(out, 1, sizeof(bytes), archive);
+        if (written != sizeof(bytes))
+        {
+            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
             fclose(archive);
             fclose(file);
-            return -1;
+            return -8;
         }
-        compressedSize += sizeof(uint32_t);
-        statHeaderSize += sizeof(uint32_t);
+        compressedSize += sizeof(bytes);
+        statHeaderSize += sizeof(bytes);
 
-        if (doEncryption) {
-            ArchiverUtils::encrypt(fileKey.leaf().string(), bufferOut, bufferIn, size);
-        } else {
-            memcpy(bufferIn, bufferOut, size);
+        // process the payload/data
+        if (doEncryption)
+        {
+            bytes = static_cast<size_t>(size);
+            memcpy(in, bufferOut, bytes);
+            ArchiverUtils::encrypt(getFilename(fileName), in, out, size);
         }
-        written = fwrite(bufferIn, 1, size, archive);
-        if (written != size) {
-            logger->error() << "Cannot write to file: " << archiveFileName;
+        else
+        {
+            memcpy(out, bufferOut, bytes);
+        }
+        written = fwrite(out, 1, bytes, archive);
+        if (written != bytes)
+        {
+            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
             fclose(archive);
             fclose(file);
-            return -1;
+            return -8;
         }
-        compressedSize += size;
+        compressedSize += bytes;
     }
 
-    logger->normal() << "Compressed size: " << compressedSize;
-    logger->normal() << "Data size: " << dataSize;
+    std::cout << "Compressed size: " << compressedSize << std::endl;
+    std::cout << "Data size: " << dataSize << std::endl;
 
+    // process the header
     ret = fseek(archive, start, SEEK_SET);
-    if (ret != 0) {
-        logger->error() << "Cannot go to start position: " << fileName;
+    if (ret != 0)
+    {
+        std::cout << "Cannot go to start position: " << fileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -9;
     }
 
     unsigned int checksum[5];
     sha.get_digest(checksum);
 
-    uint32_t written;
-
-    ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char *) &mode, bufferOut, sizeof(mode));
-    written = fwrite(bufferOut, 1, sizeof(mode), archive);
+    // process the header:mode
+    if (doEncryption)
+    {
+        memcpy(in, &mode, sizeof (mode));
+        ArchiverUtils::encrypt(getFilename(archiveFileName), in, out, sizeof(mode));
+    }
+    else
+    {
+        memcpy(out, &mode, sizeof (mode));
+    }
+    written = fwrite(out, 1, sizeof(mode), archive);
     statHeaderSize += written;
-    if (written != sizeof(mode)) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != sizeof(mode))
+    {
+        std::cout<< "Cannot write header:mode to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -10;
     }
 
-    if (doEncryption) {
-        ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char *) &fileNameSize, bufferOut, sizeof(fileNameSize));
-    } else {
-        memcpy(bufferOut, (unsigned char *) &fileNameSize, sizeof(fileNameSize));
+    // process the header:size of filename
+    if (doEncryption)
+    {
+        memcpy(in, &mode, sizeof (fileNameSize));
+        ArchiverUtils::encrypt(getFilename(archiveFileName), in, out, sizeof(fileNameSize));
     }
-    written = fwrite(bufferOut, 1, sizeof(fileNameSize), archive);
+    else
+    {
+        memcpy(out, &fileNameSize, sizeof(fileNameSize));
+    }
+    written = fwrite(out, 1, sizeof(fileNameSize), archive);
     statHeaderSize += written;
-    if (written != sizeof(fileNameSize)) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != sizeof(fileNameSize))
+    {
+        std::cout<< "Cannot write header:size of filename to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -11;
     }
 
-    if (doEncryption) {
-        ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char*) fileName.c_str(), bufferOut, fileNameSize);
-    } else {
-        memcpy(bufferOut, (unsigned char*) fileName.c_str(), fileNameSize);
+    //process the header:filename
+    if (doEncryption)
+    {
+        ArchiverUtils::encrypt(getFilename(archiveFileName), (unsigned char*) fileName.c_str(), out, static_cast<int>(fileNameSize));
     }
-    written = fwrite(bufferOut, 1, fileNameSize, archive);
+    else
+    {
+        memcpy(out, fileName.c_str(), fileNameSize);
+    }
+    written = fwrite(out, 1, fileNameSize, archive);
     statHeaderSize += written;
-    if (written != fileNameSize) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != fileNameSize)
+    {
+        std::cout << "Cannot write header:filename to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -12;
     }
 
-    if (doEncryption) {
-        ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char*) &compressedSize, bufferOut, sizeof(compressedSize));
-    } else {
-        memcpy(bufferOut, (unsigned char*) &compressedSize, sizeof(compressedSize));
+    // process the header:compressed size
+    if (doEncryption)
+    {
+        memcpy(in, &compressedSize, sizeof (fileNameSize));
+        ArchiverUtils::encrypt(getFilename(archiveFileName), in, out, sizeof(compressedSize));
     }
-    written = fwrite(bufferOut, 1, sizeof(compressedSize), archive);
+    else
+    {
+        memcpy(out, &compressedSize, sizeof(compressedSize));
+    }
+    written = fwrite(out, 1, sizeof(compressedSize), archive);
     statHeaderSize += written;
-    if (written != sizeof(compressedSize)) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != sizeof(compressedSize))
+    {
+        std::cout << "Cannot write to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -13;
     }
 
-    if (doEncryption) {
-        ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char*) &dataSize, bufferOut, sizeof(dataSize));
-    } else {
-        memcpy(bufferOut, (unsigned char*) &dataSize, sizeof(dataSize));
+    // process header:data size
+    if (doEncryption)
+    {
+        memcpy(in, &mode, sizeof (dataSize));
+        ArchiverUtils::encrypt(getFilename(archiveFileName), in, out, sizeof(dataSize));
     }
-    written = fwrite(bufferOut, 1, sizeof(dataSize), archive);
+    else
+    {
+        memcpy(out, &dataSize, sizeof(dataSize));
+    }
+    written = fwrite(out, 1, sizeof(dataSize), archive);
     statHeaderSize += written;
-    if (written != sizeof(dataSize)) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != sizeof(dataSize))
+    {
+        std::cout << "Cannot write header:data size to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -14;
     }
 
-    if (doEncryption) {
-        ArchiverUtils::encrypt(archiveKey.leaf().string(), (unsigned char*) &checksum, bufferOut, CHECKSUM_SIZE);
-    } else {
-        memcpy(bufferOut, (unsigned char*) &checksum, CHECKSUM_SIZE);
+    // process header:checksum
+    if (doEncryption)
+    {
+        memcpy(in, &checksum, CHECKSUM_SIZE);
+        ArchiverUtils::encrypt(getFilename(archiveFileName), in, out, CHECKSUM_SIZE);
     }
-    written = fwrite(bufferOut, 1, CHECKSUM_SIZE, archive);
+    else
+    {
+        memcpy(out, &checksum, CHECKSUM_SIZE);
+    }
+    written = fwrite(out, 1, CHECKSUM_SIZE, archive);
     statHeaderSize += written;
-    if (written != CHECKSUM_SIZE) {
-        logger->error() << "Cannot write to file: " << archiveFileName;
+    if (written != CHECKSUM_SIZE)
+    {
+        std::cout << "Cannot write header:checksum to file: " << archiveFileName << std::endl;
         fclose(archive);
         fclose(file);
-        return -1;
+        return -15;
     }
 
-    logger->normal() << "Stats: payload size: " << statPayloadSize << ", compressed payload size: " << statCompressedPayload << ", headers size: "<< statHeaderSize;
+    std::cout << "Stats: payload size: " << statPayloadSize << ", compressed payload size: " << statCompressedPayload << ", headers size: "<< statHeaderSize;
 
     fclose(file);
     fclose(archive);
 
     return 0;
+
 }
 
-int  Archiver::addPath(std::string path, IArchiverFile::Mode mode) {
-
-    logger->normal() << "Adding path: " << path;
-
-    boost::filesystem::path dir = boost::filesystem::absolute(path);
-    boost::filesystem::recursive_directory_iterator end;
-
-    logger->normal() << "Absolute path: " << dir.string();
-
-    int num = 0;
-    if (boost::filesystem::exists(dir)) {
-        for (boost::filesystem::recursive_directory_iterator start(dir); start != end; start++) {
-            if (boost::filesystem::is_regular_file(start->status())) {
-                num++;
-            }
-        }
+int  Archiver::addPath(std::string path, int mode)
+{
+    DIR *dir = opendir(path.c_str());
+    if (!dir)
+    {
+        std::cout << "Error: " << path << " is not a directory. " << std::endl;
+        return -1;
     }
 
-    logger->normal() << "Number of files to add: " << num;
-
-    for (boost::filesystem::recursive_directory_iterator start(dir); start != end; start++) {
-        if (SmartEye::Watchdog::retrieveCloseSignal()) {
-            logger->warning() << "Got close signal. Skipping archiving";
-            return -1;
-        }
-        logger->normal() << "Looking at: " << start->path().string();
-
-        if (boost::filesystem::is_regular_file(start->status()) && !boost::filesystem::is_symlink(start->symlink_status())) {
-            int ret = addFile(std::string(start->path().string()), mode);
-            if (ret != 0) {
-                logger->error() << "Cannot add file to archive: " << start->path().string();
-                return -1;
-            }
-
-            mutex.lock();
-            progress = progress + (1.0 / (float) num);
-            progressSignal(progress);
-            mutex.unlock();
+    int num = 0;
+    struct dirent * ent;
+    while ((ent = readdir(dir)) && isRegularFile(ent->d_name))
+    {
+        num ++;
+        if (addFile(ent->d_name, mode) < 0)
+        {
+            std::cout << "Cannot add " << ent->d_name << " to archive: " << archiveFileName << std::endl;
+            return -2;
         }
     }
 
     return 0;
 }
 
-int IArchiver::loadFromArchive(std::string archiveFileName, std::list<IArchiverFile*>* list) {
-    ILogger* logger = GetLogger("IArchiver");
-
-    FILE* archive = fopen(archiveFileName.c_str(), "rb");
-    if (archive == NULL) {
-        logger->error() << "Cannot open archive file: " << archiveFileName;
-        delete logger;
+int loadFromArchive(std::string archiveFile, std::string destPath = "")
+{
+    if (!isRegularFile(archiveFile))
+    {
+        std::cout << "Cannot find archive file " << archiveFile << std::endl;
         return -1;
+    }
+
+    FILE* archive = fopen(archiveFile.c_str(), "rb");
+    if (!archive)
+    {
+        std::cout<< "Cannot open archive file " << archiveFile << std::endl;
+        return -2;
     }
 
     int ret = fseek(archive, 0 , SEEK_END);
     if (ret != 0) {
-        logger->error() << "Cannot go to end position: " << archiveFileName;
+        std::cout<< "Cannot go to end position of " << archiveFile << " with error code " << ret << std::endl;
         fclose(archive);
-        delete logger;
-        return -1;
+        return -3;
     }
 
     int64_t end = ftell(archive);
     if (end < 0) {
-        logger->error() << "Cannot get end of file position: " << archiveFileName;
+        std::cout<< "Cannot get end of file position of " << archiveFile << " with error code " << end << std::endl;
         fclose(archive);
-        delete logger;
-        return -1;
+        return -4;
     }
 
     rewind(archive);
     fclose(archive);
 
-    uint32_t cur = 0;
-    while(cur < end) {
-        ArchiverFile* file;
-
-        try {
-            file = new ArchiverFile(archiveFileName, cur);
-        } catch (...) {
-
-            std::list<IArchiverFile*>::iterator it;
-            for (it = list->begin(); it != list->end(); it++) {
-                IArchiverFile* file = (*it);
-                delete file;
-            }
-
-            delete logger;
-            return -1;
-        }
-
-        list->push_front(file);
-        cur += file->getCompressedSize() + file->getHeaderSize();
+    if (!isDirectory(destPath))
+    {
+        std::cout<< destPath << " is not a valid directory." << std::endl;
+        return -5;
     }
 
-    delete logger;
+    uint32_t cur = 0;
+    while(cur < end)
+    {
+        //FILE* file;
+
+        cur += end;
+    }
+
     return 0;
 }
 
-boost::signals2::connection Archiver::connectProgressSlot(const IArchiver::ProgressSlotType& slot) {
-    return progressSignal.connect(slot);
-}
-
-float Archiver::getProgress() {
-    float p;
-
-    mutex.lock();
-    p = progress;
-    mutex.unlock();
-
-    return p;
-}

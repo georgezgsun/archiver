@@ -19,7 +19,7 @@ class IEvidenceWrapper {
 public:
     IEvidenceWrapper(std::string archiveName)
     {
-        archiveName = archiveName;
+        archiveNme = archiveName;
     }
 
     virtual ~IEvidenceWrapper() {}
