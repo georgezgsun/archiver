@@ -1,3 +1,5 @@
+#ifndef ARCHIVERUTILS_H
+#define ARCHIVERUTILS_H
 
 #include <string>
 #include <string.h>
@@ -18,3 +20,4 @@ public:
 
 };
 
+#endif // ARCHIVERUTILS_H

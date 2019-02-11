@@ -1,9 +1,12 @@
 #include <assert.h>
+#include <dirent.h>
+#include <string>
+#include <iostream>
 
-#include "../include/archiver.h"
-#include "../include/archiverutils.h"
-#include "../include/lz4.h"
-#include "../include/fileutils.h"
+#include "archiver.h"
+#include "archiverutils.h"
+#include "lz4.h"
+#include "fileutils.h"
 
 #define ARCHIVER_BUFFER_SIZE (1024 * 1024 * 16)
 #define CHECKSUM_SIZE 20
@@ -13,12 +16,13 @@
  * | mode | long int file name size | file name | compressed size | data size | checksum | compressed chunk | data chunk | data |
  *
  */
+using namespace std;
 
-Archiver::Archiver(std::string narchiveFileName)
+Archiver::Archiver(string narchiveFileName)
 {
 //    logger = GetLogger("Archiver");
 
-//    std::cout << "Openning " << archiveFileName << " archive file";
+//    cerr << "Openning " << archiveFileName << " archive file";
     archiveFileName = narchiveFileName;
     statCompressedPayload = 0;
     statPayloadSize = 0;
@@ -44,30 +48,30 @@ Archiver::~Archiver() {
     delete [] out;
 }
 
-int Archiver::addFile(std::string fileName, int mode)
+int Archiver::addFile(string fileName, int mode)
 {
-    std::cout << "Adding file: " << fileName << " to archive: " << archiveFileName << " with mode " << mode;
+    cerr << "Adding file: " << fileName << " to archive: " << archiveFileName << " with mode " << mode;
 
-    std::string fileKey = fileName;
-    std::string archiveKey = archiveFileName;
+    string fileKey = fileName;
+    string archiveKey = archiveFileName;
 
     if (!isRegularFile(fileName))
     {
-        std::cout << fileName << " is not a regular file." << std::endl;
+        cerr << fileName << " is not a regular file." << endl;
         return -1;
     }
 
     FILE* archive = fopen(archiveFileName.c_str(), "rwb+");
     if (!archive)
     {
-        std::cout<< "Cannot open archive file: " << archiveFileName << std::endl;
+        cerr<< "Cannot open archive file: " << archiveFileName << endl;
         return -2;
     }
 
     FILE* file = fopen(fileName.c_str(), "rb");
     if (!file)
     {
-        std::cout<< "Cannot open " << fileName << " to add to archive: " << std::endl;
+        cerr<< "Cannot open " << fileName << " to add to archive: " << endl;
         fclose(archive);
         return -3;
     }
@@ -75,7 +79,7 @@ int Archiver::addFile(std::string fileName, int mode)
     int ret = fseek(archive, 0, SEEK_END);
     if (ret != 0)
     {
-        std::cout<< "Cannot go to end of file: " << fileName << " with error code " << ret << std::endl;
+        cerr<< "Cannot go to end of file: " << fileName << " with error code " << ret << endl;
         ret=-4;
         fclose(archive);
         fclose(file);
@@ -83,10 +87,10 @@ int Archiver::addFile(std::string fileName, int mode)
     }
 
     int64_t start = ftell(archive);
-    std::cout<< "Adding to archive at: " << start << std::endl;
+    cerr<< "Adding to archive at: " << start << endl;
     if (start < 0)
     {
-        std::cout<< "Cannot get end of file position: " << fileName << std::endl;
+        cerr<< "Cannot get end of file position: " << fileName << endl;
         fclose(archive);
         fclose(file);
         return -5;
@@ -94,13 +98,13 @@ int Archiver::addFile(std::string fileName, int mode)
 
     uint32_t fileNameSize = static_cast<uint32_t>(fileName.size());
     uint32_t headerSize = sizeof(mode) + sizeof(fileNameSize) + fileNameSize + sizeof(uint32_t) + sizeof(uint32_t) + CHECKSUM_SIZE;
-    std::cout << "Header size " << headerSize << std::endl;
+    cerr << "Header size " << headerSize << endl;
 
     // Jump to payload section
     ret = fseek(archive, headerSize, SEEK_CUR);
     if (ret != 0)
     {
-        std::cout<< "Cannot go to payload position: " << fileName << std::endl;
+        cerr<< "Cannot go to payload position: " << fileName << endl;
         fclose(archive);
         fclose(file);
         return -6;
@@ -110,7 +114,7 @@ int Archiver::addFile(std::string fileName, int mode)
     bool doEncryption = (mode & 2) == 0;
     if (!doCompression && !doEncryption)
     {
-        std::cout<< "Mode specification " << mode << " is incorrect. It can only be 0(Compression and Encryption), 1(Comprission only), or 2(Encryption only)." << std::endl;
+        cerr<< "Mode specification " << mode << " is incorrect. It can only be 0(Compression and Encryption), 1(Comprission only), or 2(Encryption only)." << endl;
         fclose(archive);
         fclose(file);
         return -7;
@@ -157,7 +161,7 @@ int Archiver::addFile(std::string fileName, int mode)
         written = fwrite(out, 1, sizeof(size), archive);
         if (written != sizeof(size))
         {
-            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
+            cerr<< "Cannot write to file: " << archiveFileName << endl;
             fclose(archive);
             fclose(file);
             return -8;
@@ -177,7 +181,7 @@ int Archiver::addFile(std::string fileName, int mode)
         written = fwrite(out, 1, sizeof(bytes), archive);
         if (written != sizeof(bytes))
         {
-            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
+            cerr<< "Cannot write to file: " << archiveFileName << endl;
             fclose(archive);
             fclose(file);
             return -8;
@@ -199,7 +203,7 @@ int Archiver::addFile(std::string fileName, int mode)
         written = fwrite(out, 1, bytes, archive);
         if (written != bytes)
         {
-            std::cout<< "Cannot write to file: " << archiveFileName << std::endl;
+            cerr<< "Cannot write to file: " << archiveFileName << endl;
             fclose(archive);
             fclose(file);
             return -8;
@@ -207,14 +211,14 @@ int Archiver::addFile(std::string fileName, int mode)
         compressedSize += bytes;
     }
 
-    std::cout << "Compressed size: " << compressedSize << std::endl;
-    std::cout << "Data size: " << dataSize << std::endl;
+    cerr << "Compressed size: " << compressedSize << endl;
+    cerr << "Data size: " << dataSize << endl;
 
     // process the header
     ret = fseek(archive, start, SEEK_SET);
     if (ret != 0)
     {
-        std::cout << "Cannot go to start position: " << fileName << std::endl;
+        cerr << "Cannot go to start position: " << fileName << endl;
         fclose(archive);
         fclose(file);
         return -9;
@@ -237,7 +241,7 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != sizeof(mode))
     {
-        std::cout<< "Cannot write header:mode to file: " << archiveFileName << std::endl;
+        cerr<< "Cannot write header:mode to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -10;
@@ -257,7 +261,7 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != sizeof(fileNameSize))
     {
-        std::cout<< "Cannot write header:size of filename to file: " << archiveFileName << std::endl;
+        cerr<< "Cannot write header:size of filename to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -11;
@@ -276,7 +280,7 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != fileNameSize)
     {
-        std::cout << "Cannot write header:filename to file: " << archiveFileName << std::endl;
+        cerr << "Cannot write header:filename to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -12;
@@ -296,7 +300,7 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != sizeof(compressedSize))
     {
-        std::cout << "Cannot write to file: " << archiveFileName << std::endl;
+        cerr << "Cannot write to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -13;
@@ -316,7 +320,7 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != sizeof(dataSize))
     {
-        std::cout << "Cannot write header:data size to file: " << archiveFileName << std::endl;
+        cerr << "Cannot write header:data size to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -14;
@@ -336,13 +340,13 @@ int Archiver::addFile(std::string fileName, int mode)
     statHeaderSize += written;
     if (written != CHECKSUM_SIZE)
     {
-        std::cout << "Cannot write header:checksum to file: " << archiveFileName << std::endl;
+        cerr << "Cannot write header:checksum to file: " << archiveFileName << endl;
         fclose(archive);
         fclose(file);
         return -15;
     }
 
-    std::cout << "Stats: payload size: " << statPayloadSize << ", compressed payload size: " << statCompressedPayload << ", headers size: "<< statHeaderSize;
+    cerr << "Stats: payload size: " << statPayloadSize << ", compressed payload size: " << statCompressedPayload << ", headers size: "<< statHeaderSize;
 
     fclose(file);
     fclose(archive);
@@ -351,12 +355,12 @@ int Archiver::addFile(std::string fileName, int mode)
 
 }
 
-int  Archiver::addPath(std::string path, int mode)
+int  Archiver::addPath(string path, int mode)
 {
     DIR *dir = opendir(path.c_str());
     if (!dir)
     {
-        std::cout << "Error: " << path << " is not a directory. " << std::endl;
+        std::cerr << "Error: " << path << " is not a directory. " << endl;
         return -1;
     }
 
@@ -367,7 +371,7 @@ int  Archiver::addPath(std::string path, int mode)
         num ++;
         if (addFile(ent->d_name, mode) < 0)
         {
-            std::cout << "Cannot add " << ent->d_name << " to archive: " << archiveFileName << std::endl;
+            cerr << "Cannot add " << ent->d_name << " to archive: " << archiveFileName << endl;
             return -2;
         }
     }
@@ -375,31 +379,31 @@ int  Archiver::addPath(std::string path, int mode)
     return 0;
 }
 
-int loadFromArchive(std::string archiveFile, std::string destPath = "")
+int loadFromArchive(string archiveFile, string destPath = "")
 {
     if (!isRegularFile(archiveFile))
     {
-        std::cout << "Cannot find archive file " << archiveFile << std::endl;
+        cerr << "Cannot find archive file " << archiveFile << endl;
         return -1;
     }
 
     FILE* archive = fopen(archiveFile.c_str(), "rb");
     if (!archive)
     {
-        std::cout<< "Cannot open archive file " << archiveFile << std::endl;
+        cerr<< "Cannot open archive file " << archiveFile << endl;
         return -2;
     }
 
     int ret = fseek(archive, 0 , SEEK_END);
     if (ret != 0) {
-        std::cout<< "Cannot go to end position of " << archiveFile << " with error code " << ret << std::endl;
+        cerr<< "Cannot go to end position of " << archiveFile << " with error code " << ret << endl;
         fclose(archive);
         return -3;
     }
 
     int64_t end = ftell(archive);
     if (end < 0) {
-        std::cout<< "Cannot get end of file position of " << archiveFile << " with error code " << end << std::endl;
+        cerr<< "Cannot get end of file position of " << archiveFile << " with error code " << end << endl;
         fclose(archive);
         return -4;
     }
@@ -409,7 +413,7 @@ int loadFromArchive(std::string archiveFile, std::string destPath = "")
 
     if (!isDirectory(destPath))
     {
-        std::cout<< destPath << " is not a valid directory." << std::endl;
+        cerr<< destPath << " is not a valid directory." << endl;
         return -5;
     }
 

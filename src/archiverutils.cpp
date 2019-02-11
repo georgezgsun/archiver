@@ -1,9 +1,10 @@
-#include "../include/archiverutils.h"
+#include "archiverutils.h"
 #include <openssl/aes.h>
 
 #include <string.h>
 #include <boost/uuid/sha1.hpp>
-#include "../include/lz4.h"
+#include "lz4.h"
+#include <dirent.h>
 
 void ArchiverUtils::generateKey(unsigned char key[16], std::string fileName) {
     unsigned char hash[20];

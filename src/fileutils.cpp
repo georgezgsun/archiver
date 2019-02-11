@@ -1,43 +1,90 @@
-#include "../include/fileutils.h"
 #include <unistd.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <string>
 
-std::string getFilePath(std::string filename)
+#include "fileutils.h"
+
+using namespace std;
+
+Fileutils::Fileutils(string filename)
+{
+    Path = "";
+    Filename = filename;
+    BaseName = Filename;
+    Extension = "";
+    isDirectory = false;
+    isSymbolLink = false;
+    isRegularFile = false;
+
+    size_t i = Filename.rfind('/');
+    if (i != string::npos)
+    {
+        Path = Filename.substr(0,i);
+        Filename = Filename.substr(i+1);
+    }
+
+    i = Filename.rfind(('.'));
+    if (i != string::npos)
+    {
+        BaseName = Filename.substr(0,i);
+        Extension = Filename.substr(i+1);
+    }
+
+    struct stat st;
+    if (stat(filename.c_str(), &st) == 0)
+    {
+        isDirectory = S_ISDIR(st.st_mode);
+        isRegularFile = S_ISREG(st.st_mode);
+        isSymbolLink = S_ISLNK(st.st_mode);
+    }
+}
+
+string getCurrentWorkingPath()
+{
+    char cwd[PATH_MAX];
+    if (getcwd(cwd, sizeof (cwd)))
+        return cwd;
+    return "";
+}
+
+string getFilePath(string filename)
 {
     size_t i = filename.rfind('/');
-    if (i != std::string::npos)
+    if (i != string::npos)
         return filename.substr(0,i);
     return "";
 };
 
-std::string getFilename(std::string filename)
+string getFilename(string filename)
 {
     size_t i = filename.rfind('/');
-    if (i != std::string::npos)
+    if (i != string::npos)
         return filename.substr(i+1);
     return filename;
 };
 
-std::string getFileBaseName(std::string filename)
+string getFileBaseName(string filename)
 {
-    std::string name = filename;
+    string name = filename;
     size_t i = filename.rfind('/');
-    if (i != std::string::npos)
+    if (i != string::npos)
         name = filename.substr(i+1);
     size_t j = name.rfind('.');
 
     return name.substr(0, j);
 };
 
-std::string getFileExtension(std::string filename)
+string getFileExtension(string filename)
 {
     size_t i = filename.rfind('/');
     size_t j = filename.rfind('.');
-    if ((j != std::string::npos) && (j > i))
+    if ((j != string::npos) && (j > i))
         return filename.substr(j+1);
     return "";
 };
 
-bool isRegularFile(std::string filename)
+bool isRegularFile(string filename)
 {
     struct stat st;
     if (stat(filename.c_str(), &st))
@@ -47,7 +94,7 @@ bool isRegularFile(std::string filename)
     return false;
 };
 
-bool isDirectory(std::string path)
+bool isDirectory(string path)
 {
     struct stat st;
     if (stat(path.c_str(), &st))
@@ -57,10 +104,3 @@ bool isDirectory(std::string path)
     return false;
 };
 
-std::string getCurrentWorkingPath()
-{
-    char cwd[PATH_MAX];
-    if (getcwd(cwd, sizeof (cwd)))
-        return cwd;
-    return "";
-}

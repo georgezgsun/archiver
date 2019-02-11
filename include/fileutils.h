@@ -1,18 +1,31 @@
 #ifndef FILEUTILS_H
 #define FILEUTILS_H
-#include <iostream>
+
 #include <string>
+using namespace std;
 
-#include <assert.h>
-#include <sys/stat.h>
-#include <dirent.h>
+class Fileutils
+{
 
-std::string getFilePath(std::string filename);
-std::string getFilename(std::string filename);
-std::string getFileBaseName(std::string filename);
-std::string getFileExtension(std::string filename);
-std::string getCurrentWorkingPath();
+public:
+    Fileutils(string filename);
+    string Filename;
+    string Path;
+    string BaseName;
+    string Extension;
 
-bool isRegularFile(std::string filename);
-bool isDirectory(std::string path);
+    bool isRegularFile;
+    bool isDirectory;
+    bool isSymbolLink;
+};
+
+string getCurrentWorkingPath();
+string getFilePath(string filename);
+string getFilename(string filename);
+string getFileBaseName(string filename);
+string getFileExtension(string filename);
+
+bool isRegularFile(string filename);
+bool isDirectory(string path);
+
 #endif // FILEUTILS_H
